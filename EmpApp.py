@@ -1,11 +1,10 @@
-from flask import Flask, render_template,request
-from datetime import datetime
+from flask import Flask, render_template, request
 from pymysql import connections
-from config import *
+import os
 import boto3
+from config import *
 
 app = Flask(__name__)
-app.secret_key = "magiv"
 
 bucket = custombucket
 region = customregion
@@ -18,34 +17,30 @@ db_conn = connections.Connection(
     db=customdb
 
 )
-
 output = {}
 table = 'employee'
 
 
-#MAIN PAGE
-@app.route("/")
+@app.route("/", methods=['GET', 'POST'])
 def home():
-    
-    return render_template("home.html",date=datetime.now())
-    
-#ADD EMPLOYEE DONE
-@app.route("/addemp/",methods=['GET','POST'])
-def addEmp():
-    return render_template("AddEmp.html",date=datetime.now())
+    return render_template('AddEmp.html')
 
-#EMPLOYEE OUTPUT
-@app.route("/addemp/results",methods=['GET','POST'])
-def Emp():
 
+@app.route("/about", methods=['POST'])
+def about():
+    return render_template('www.intellipaat.com')
+
+
+@app.route("/addemp", methods=['POST'])
+def AddEmp():
     emp_id = request.form['emp_id']
     first_name = request.form['first_name']
     last_name = request.form['last_name']
     pri_skill = request.form['pri_skill']
     location = request.form['location']
     emp_image_file = request.files['emp_image_file']
-    check_in =''
-    insert_sql = "INSERT INTO employee VALUES (%s, %s, %s, %s, %s,%s)"
+
+    insert_sql = "INSERT INTO employee VALUES (%s, %s, %s, %s, %s)"
     cursor = db_conn.cursor()
 
     if emp_image_file.filename == "":
@@ -53,7 +48,7 @@ def Emp():
 
     try:
 
-        cursor.execute(insert_sql, (emp_id, first_name, last_name, pri_skill, location,check_in))
+        cursor.execute(insert_sql, (emp_id, first_name, last_name, pri_skill, location))
         db_conn.commit()
         emp_name = "" + first_name + " " + last_name
         # Uplaod image file in S3 #
@@ -85,177 +80,85 @@ def Emp():
     print("all modification done...")
     return render_template('AddEmpOutput.html', name=emp_name)
 
-#Attendance 
-@app.route("/attendance/")
-def attendance():
-    return render_template("Attendance.html",date=datetime.now())
+# Get Employee
+@app.route("/getemp", methods=['GET', 'POST'])
+def GetEmp():
+    return render_template('GetEmp.html')
 
-#CHECK IN BUTTON
-@app.route("/attendance/checkIn",methods=['GET','POST'])
-def checkIn():
+@app.route("/getempoutput", methods=['POST'])
+def GetEmpOutput():
+    s3 = boto3.resource('s3')
     emp_id = request.form['emp_id']
-
-    #UPDATE STATEMENT
-    update_stmt= "UPDATE employee SET check_in =(%(check_in)s) WHERE emp_id = %(emp_id)s"
-
+    emp_name = ""
+    emp_loc = ""
+    emp_pri_skill = ""
+    emp_img = ""
+    selectSQL = "SELECT * FROM employee WHERE emp_id = %s"
     cursor = db_conn.cursor()
-
-    LoginTime = datetime.now()
-    formatted_login = LoginTime.strftime('%Y-%m-%d %H:%M:%S')
-    print ("Check in time:{}",formatted_login)
-
-    try:
-        cursor.execute(update_stmt, { 'check_in': formatted_login ,'emp_id':int(emp_id)})
-        db_conn.commit()
-        print(" Data Updated into MySQL")
-
-    except Exception as e:
-        return str(e)
-
-    finally:
+    cursor.execute(selectSQL, (emp_id))
+    result = cursor.fetchall()
+    if(len(result)>0):
+        for i in result:
+            emp_image_file_name_in_s3 = "emp-id-" + str(emp_id) + "_image_file"
+            emp_fname = i[1]
+            emp_lname = i[2]
+            emp_loc = i[4]
+            emp_pri_skill = i[3]
+            bucket_location = boto3.client('s3').get_bucket_location(Bucket=custombucket)
+            s3_location = (bucket_location['LocationConstraint'])
+            if s3_location is None:
+                s3_location = ''
+            else:
+                s3_location = '-' + s3_location
+            object_url = "https://s3{0}.amazonaws.com/{1}/{2}".format(
+                s3_location,
+                custombucket,
+                emp_image_file_name_in_s3)
+            cursor.close()
+            return render_template('GetEmpOutput.html', emp_id_output=emp_id, fname=emp_fname, lname=emp_lname, emp_loc_output=emp_loc, emp_pri_skill_output=emp_pri_skill, emp_img=object_url)
+    else:
         cursor.close()
-        
-    return render_template("AttendanceOutput.html",date=datetime.now(),
-    LoginTime=formatted_login)
+        return("No User Found")
+   
 
-#CHECK OUT BUTTON
-@app.route("/attendance/output",methods=['GET','POST'])
-def checkOut():
 
+# Delete Employee
+@app.route("/delemp", methods=['GET','POST'])
+def DelEmp():
+    return render_template('DelEmp.html')
+
+@app.route("/delempoutput", methods=['POST'])
+def DelEmpOutput():
     emp_id = request.form['emp_id']
-    # SELECT STATEMENT TO GET DATA FROM MYSQL
-    select_stmt = "SELECT check_in FROM employee WHERE emp_id = %(emp_id)s"
-    insert_statement="INSERT INTO attendance VALUES (%s,%s,%s,%s)"
-    
-
+    selectSQL = "SELECT * FROM employee WHERE emp_id = %s"
     cursor = db_conn.cursor()
-        
-    try:
-        cursor.execute(select_stmt,{'emp_id':int(emp_id)})
-        LoginTime= cursor.fetchall()
-       
-        for row in LoginTime:
-            formatted_login = row
-            print(formatted_login[0])
-        
+    cursor.execute(selectSQL, (emp_id))
+    result = cursor.fetchone()
+    if(len(result)>0):
+        nameUser = result[1]+" "+result[2]
 
-        CheckoutTime=datetime.now()
-        LogininDate = datetime.strptime(formatted_login[0],'%Y-%m-%d %H:%M:%S')
-        
-
-      
-        formatted_checkout = CheckoutTime.strftime('%Y-%m-%d %H:%M:%S')
-        Total_Working_Hours = CheckoutTime - LogininDate
-        print(Total_Working_Hours)
-
-         
+        emp_image_file_name_in_s3 = "emp-id-" + str(emp_id) + "_image_file"
+        s3 = boto3.resource('s3')
         try:
-            cursor.execute(insert_statement,(emp_id,formatted_login[0],formatted_checkout,Total_Working_Hours))
+            selectSQL = "DELETE FROM employee WHERE emp_id = %s"
+            cursor.execute(selectSQL, (emp_id))
             db_conn.commit()
-            print(" Data Inserted into MySQL")
-            
-            
-        except Exception as e:
-             return str(e)
-                    
-                    
-    except Exception as e:
-        return str(e)
-
-    finally:
-        cursor.close()
-        
-    return render_template("AttendanceOutput.html",date=datetime.now(),Checkout = formatted_checkout,
-     LoginTime=formatted_login[0],TotalWorkingHours=Total_Working_Hours)
-
-   
-    
-
-#Get Employee DONE
-@app.route("/getemp/")
-def getEmp():
-    
-    return render_template('GetEmp.html',date=datetime.now())
-
-
-#Get Employee Results
-@app.route("/getemp/results",methods=['GET','POST'])
-def Employee():
-    
-     #Get Employee
-     emp_id = request.form['emp_id']
-    # SELECT STATEMENT TO GET DATA FROM MYSQL
-     select_stmt = "SELECT * FROM employee WHERE emp_id = %(emp_id)s"
-
-     
-     cursor = db_conn.cursor()
-        
-     try:
-         cursor.execute(select_stmt, { 'emp_id': int(emp_id) })
-         # #FETCH ONLY ONE ROWS OUTPUT
-         for result in cursor:
-            print(result)
-        
-
-     except Exception as e:
-        return str(e)
-        
-     finally:
-        cursor.close()
-    
-
-     return render_template("GetEmpOutput.html",result=result,date=datetime.now())
-
-
- #Payroll Calculator  DONE
-@app.route("/payroll/",methods=['GET','POST'])
-def payRoll():
-    return render_template('Payroll.html',date=datetime.now())
-
-#NEED MAKE SURE THE INPUT ARE LINKED TO HERE
-@app.route("/payroll/results",methods=['GET','POST'])
-def CalpayRoll():
-
-    select_statement="SELECT total_working_hours FROM attendance WHERE emp_id = %(emp_id)s"
-    cursor = db_conn.cursor()
-   
-
-    if 'emp_id' in request.form and 'basic' in request.form and 'days'in request.form:
-        emp_id = int(request.form.get('emp_id'))
-        hourly_salary = int(request.form.get('basic'))
-        workday_perweek = int(request.form.get('days'))
-
-        try:
-            cursor.execute(select_statement,{'emp_id': emp_id})
-            WorkHour= cursor.fetchall()
-            Final=0
-
-            for row in WorkHour:
-                
-                Hour=row[0]
-                NewHour = datetime.strptime(Hour,'%H:%M:%S.%f')
-                
-                total_seconds = NewHour.second + NewHour.minute*60 + NewHour.hour*3600
-                Final += total_seconds
-                Final = Final/3600
-                working_hour= round(Final,2)
-                print(Final)
-
+            print("Data deleted from MySQL RDS... deleting image from S3...")
+            boto3.client('s3').delete_object(Bucket=custombucket, Key=emp_image_file_name_in_s3)
         except Exception as e:
             return str(e)
 
-        # #Monthly salary = hourly salary * working hour per week * working days per week
-        pay = round((hourly_salary*working_hour*workday_perweek),2)
-        annual = float(pay) * 12 
-        annual = int(annual)
-            # # Bonus if 3% of annual salary
-        Bonus = annual*0.03
+        finally:
+            cursor.close()
+
+        print("all modification done...")
+        return render_template('DelEmpOutput.html', name=nameUser)
     else:
-        print("Something Missing")
-        return render_template('Payroll.html',date=datetime.now())
+        cursor.close()
+        return("No User Found")
+    
 
-    return render_template('PayrollOutput.html',date=datetime.now(),emp_id=emp_id, MonthlySalary= pay , AnnualSalary = annual, WorkingHours = working_hour ,Bonus=Bonus)
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=80, debug=True)
 
-# RMB TO CHANGE PORT NUMBER
-if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=80, debug=True) # or setting host to '0.0.0.0'
+    
