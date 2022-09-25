@@ -26,15 +26,15 @@ def home():
     return render_template('AddEmp.html')
 
 @app.route("/homepage", methods=['GET', 'POST'])
-def home():
+def homepage():
     return render_template('Home.html')
 
 @app.route("/addpage", methods=['GET', 'POST'])
-def home():
+def addpage():
     return render_template('AddEmp.html')
 
 @app.route("/delpage", methods=['GET', 'POST'])
-def home():
+def delpage():
     return render_template('DelEmp.html')
 
 
