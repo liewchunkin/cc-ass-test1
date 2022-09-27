@@ -37,12 +37,10 @@ def addpage():
 def delpage():
     return render_template('DelEmp.html')
 
+@app.route("/aboutus", methods=['GET', 'POST'])
+def home():
+    return render_template('AboutUs.html')
 
-
-
-@app.route("/about", methods=['POST'])
-def about():
-    return render_template('www.intellipaat.com')
 
 
 @app.route("/addemp", methods=['POST'])
