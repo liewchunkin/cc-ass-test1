@@ -38,7 +38,7 @@ def delpage():
     return render_template('DelEmp.html')
 
 @app.route("/aboutus", methods=['GET', 'POST'])
-def home():
+def about():
     return render_template('AboutUs.html')
 
 
